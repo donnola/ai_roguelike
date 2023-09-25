@@ -84,6 +84,11 @@ struct HealAmount
   float amount = 0.f;
 };
 
+struct HealCooldown
+{
+  int cooldown = 0.f;
+};
+
 struct PowerupAmount
 {
   float amount = 0.f;

@@ -44,7 +44,60 @@ static void add_attack_sm(flecs::entity entity)
   });
 }
 
-static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color color)
+static void add_patrol_selfheal_sm(flecs::entity entity)
+{
+  entity.get([](StateMachine &sm)
+  {
+    int patrol = sm.addState(create_patrol_state(3.f));
+    int heal = sm.addState(create_selfheal_state(35.f));
+    int moveToEnemy = sm.addState(create_move_to_enemy_state());
+
+    sm.addTransition(create_hitpoints_less_than_transition(60.f), patrol, heal);
+    sm.addTransition(create_hitpoints_less_than_transition(60.f), moveToEnemy, heal);
+    sm.addTransition(create_negate_transition(create_or_transition(create_hitpoints_less_than_transition(60.f), create_enemy_available_transition(5.f))), heal, patrol);
+    sm.addTransition(create_negate_transition(create_or_transition(create_hitpoints_less_than_transition(60.f), create_enemy_available_transition(5.f))), moveToEnemy, patrol);
+    sm.addTransition(create_and_transition(create_negate_transition(create_hitpoints_less_than_transition(60.f)), create_enemy_available_transition(3.f)), heal, moveToEnemy);
+    sm.addTransition(create_and_transition(create_negate_transition(create_hitpoints_less_than_transition(60.f)), create_enemy_available_transition(3.f)), patrol, moveToEnemy);
+  });
+}
+
+static void add_patrol_attack_berserk_sm(flecs::entity entity)
+{
+  entity.get([](StateMachine &sm)
+  {
+    int patrol = sm.addState(create_patrol_state(3.f));
+    int moveToEnemy = sm.addState(create_move_to_enemy_state());
+    int berserk = sm.addState(create_move_to_enemy_state());
+
+    sm.addTransition(create_or_transition(create_enemy_available_transition(3.f), create_hitpoints_less_than_transition(60.f)), patrol, moveToEnemy);
+    sm.addTransition(create_negate_transition(create_or_transition(create_enemy_available_transition(5.f), create_hitpoints_less_than_transition(60.f))), moveToEnemy, patrol);
+  });
+}
+
+static void add_team_heal_guard_sm(flecs::entity entity)
+{
+  entity.set(HealCooldown{3}).get([](StateMachine &sm)
+  {
+    float healRad = 4.f;
+    int moveToEnemy = sm.addState(create_move_to_enemy_state());
+    int moveToTeammate = sm.addState(create_move_to_teammate_state(2.f));
+    int healTeammate = sm.addState(create_heal_teammate_state(25.f, healRad));
+
+    sm.addTransition(create_and_transition(create_enemy_available_transition(3.f), create_teammate_available_transition(healRad)), healTeammate, moveToEnemy);
+    sm.addTransition(create_negate_transition(create_and_transition(create_enemy_available_transition(3.f), create_teammate_available_transition(healRad))), healTeammate, moveToTeammate);
+
+    sm.addTransition(create_negate_transition(create_teammate_available_transition(healRad)), moveToEnemy, moveToTeammate);
+    sm.addTransition(create_and_transition(
+      create_and_transition(create_teammate_available_transition(healRad), create_enemy_available_transition(3.f)), 
+      create_negate_transition(create_must_heal_teammate_transition(60.f, healRad))), moveToTeammate, moveToEnemy);
+
+    sm.addTransition(create_must_heal_teammate_transition(60.f, healRad), moveToTeammate, healTeammate);
+    sm.addTransition(create_must_heal_teammate_transition(60.f, healRad), moveToEnemy, healTeammate);
+
+  });
+}
+
+static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color color, int team)
 {
   return ecs.entity()
     .set(Position{x, y})
@@ -54,7 +107,7 @@ static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color color
     .set(Action{EA_NOP})
     .set(Color{color})
     .set(StateMachine{})
-    .set(Team{1})
+    .set(Team{team})
     .set(NumActions{1, 0})
     .set(MeleeDamage{20.f});
 }
@@ -135,11 +188,14 @@ void init_roguelike(flecs::world &ecs)
 {
   register_roguelike_systems(ecs);
 
-  add_patrol_attack_flee_sm(create_monster(ecs, 5, 5, GetColor(0xee00eeff)));
-  add_patrol_attack_flee_sm(create_monster(ecs, 10, -5, GetColor(0xee00eeff)));
-  add_patrol_flee_sm(create_monster(ecs, -5, -5, GetColor(0x111111ff)));
-  add_attack_sm(create_monster(ecs, -5, 5, GetColor(0x880000ff)));
+  add_patrol_attack_flee_sm(create_monster(ecs, 5, 5, GetColor(0xee00eeff), 1));
+  // add_patrol_attack_flee_sm(create_monster(ecs, 10, -5, GetColor(0xee00eeff)));
+  add_patrol_attack_berserk_sm(create_monster(ecs, 10, -5, GetColor(0x422446ff), 1));
+  // add_patrol_flee_sm(create_monster(ecs, -5, -5, GetColor(0x111111ff)));
+  add_patrol_selfheal_sm(create_monster(ecs, -5, -5, GetColor(0x111111ff), 1));
+  add_attack_sm(create_monster(ecs, -5, 5, GetColor(0x880000ff), 1));
 
+  add_team_heal_guard_sm(create_monster(ecs, 0, 2, GetColor(0xff970fff), 0));
   create_player(ecs, 0, 0);
 
   create_powerup(ecs, 7, 7, 10.f);
