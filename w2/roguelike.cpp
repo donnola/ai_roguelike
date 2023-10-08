@@ -25,6 +25,46 @@ static void create_minotaur_beh(flecs::entity e)
   e.set(BehaviourTree{root});
 }
 
+static void create_collector_beh(flecs::entity e)
+{
+  e.add<BuffTaker>().set(Blackboard{});
+  BehNode *root =
+    selector({
+      sequence({
+        selector({
+          find_enemy(e, 2.f, "attack_enemy"),
+          sequence({
+            invert(buff_exist()),
+            find_enemy(e, FLT_MAX, "attack_enemy"),
+          })
+        }),
+        move_to_entity(e, "attack_enemy")
+      }),
+      sequence({
+        find_nerest_buff(e, "go_to_buff"),
+        move_to_entity(e, "go_to_buff")
+      })
+    });
+  e.set(BehaviourTree{root});
+}
+
+static void create_guard_beh(flecs::entity e, flecs::entity w1)
+{
+  e.set(NextWaypoint(w1)).set(Blackboard{});
+  BehNode *root =
+    selector({
+      sequence({
+        find_enemy(e, 3.f, "attack_enemy"),
+        move_to_entity(e, "attack_enemy")
+      }),
+      sequence({
+        find_waypoint(e, "waypoint"),
+        move_to_entity(e, "waypoint")
+      })
+    });
+  e.set(BehaviourTree{root});
+}
+
 static flecs::entity create_monster(flecs::world &ecs, int x, int y, Color col, const char *texture_src)
 {
   flecs::entity textureSrc = ecs.entity(texture_src);
@@ -52,6 +92,7 @@ static void create_player(flecs::world &ecs, int x, int y, const char *texture_s
     //.set(Color{0xee, 0xee, 0xee, 0xff})
     .set(Action{EA_NOP})
     .add<IsPlayer>()
+    .add<BuffTaker>()
     .set(Team{0})
     .set(PlayerInput{})
     .set(NumActions{2, 0})
@@ -65,6 +106,7 @@ static void create_heal(flecs::world &ecs, int x, int y, float amount)
   ecs.entity()
     .set(Position{x, y})
     .set(HealAmount{amount})
+    .add<IsBuff>()
     .set(Color{0xff, 0x44, 0x44, 0xff});
 }
 
@@ -73,6 +115,7 @@ static void create_powerup(flecs::world &ecs, int x, int y, float amount)
   ecs.entity()
     .set(Position{x, y})
     .set(PowerupAmount{amount})
+    .add<IsBuff>()
     .set(Color{0xff, 0xff, 0x00, 0xff});
 }
 
@@ -135,8 +178,25 @@ void init_roguelike(flecs::world &ecs)
 
   create_minotaur_beh(create_monster(ecs, 5, 5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
   create_minotaur_beh(create_monster(ecs, 10, -5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
-  create_minotaur_beh(create_monster(ecs, -5, -5, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
-  create_minotaur_beh(create_monster(ecs, -5, 5, Color{0, 255, 0, 255}, "minotaur_tex"));
+  create_collector_beh(create_monster(ecs, -5, -5, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
+
+  flecs::entity w1 = ecs.entity()
+    .set(Position{-5 + 3, 5});
+  
+  flecs::entity w2 = ecs.entity()
+    .set(Position{-5, 5 + 3});
+
+  flecs::entity w3 = ecs.entity()
+    .set(Position{-5 - 3, 5});
+
+  flecs::entity w4 = ecs.entity()
+    .set(Position{-5, 5 - 3});
+
+  w1.set(NextWaypoint{w2});
+  w2.set(NextWaypoint{w3});
+  w3.set(NextWaypoint{w4});
+  w4.set(NextWaypoint{w1});
+  create_guard_beh(create_monster(ecs, -5, 5, Color{0, 255, 0, 255}, "minotaur_tex"), w1);
 
   create_player(ecs, 0, 0, "swordsman_tex");
 
@@ -227,12 +287,12 @@ static void process_actions(flecs::world &ecs)
     });
   });
 
-  static auto playerPickup = ecs.query<const IsPlayer, const Position, Hitpoints, MeleeDamage>();
+  static auto playerPickup = ecs.query<const BuffTaker, const Position, Hitpoints, MeleeDamage>();
   static auto healPickup = ecs.query<const Position, const HealAmount>();
   static auto powerupPickup = ecs.query<const Position, const PowerupAmount>();
   ecs.defer([&]
   {
-    playerPickup.each([&](const IsPlayer&, const Position &pos, Hitpoints &hp, MeleeDamage &dmg)
+    playerPickup.each([&](const BuffTaker&, const Position &pos, Hitpoints &hp, MeleeDamage &dmg)
     {
       healPickup.each([&](flecs::entity entity, const Position &ppos, const HealAmount &amt)
       {
