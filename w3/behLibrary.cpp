@@ -5,6 +5,8 @@
 #include "raylib.h"
 #include "blackboard.h"
 #include <algorithm>
+#include <iostream>
+#include <random>
 
 struct CompoundNode : public BehNode
 {
@@ -74,6 +76,87 @@ struct UtilitySelector : public BehNode
       BehResult res = utilityNodes[nodeIdx].first->update(ecs, entity, bb);
       if (res != BEH_FAIL)
         return res;
+    }
+    return BEH_FAIL;
+  }
+};
+
+struct WeightedRandomUtilitySelector : public BehNode
+{
+  std::vector<std::pair<BehNode*, utility_function>> utilityNodes;
+
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    std::vector<float> wheihts;
+    float sum = 0;
+    for (size_t i = 0; i < utilityNodes.size(); ++i)
+    {
+      const float utilityScore = utilityNodes[i].second(bb);
+      sum += utilityScore;
+      wheihts.push_back(utilityScore);
+    }
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    size_t nodeIdx = -1;
+    for (size_t i = 0; i < utilityNodes.size(); ++i)
+    {
+      float cumSum = 0;
+      std::uniform_real_distribution<> dis(0.f, sum);
+      float r = dis(gen);
+      for (int j = 0; j < utilityNodes.size(); ++j)
+      {
+        if (cumSum + wheihts[j] >= r)
+        {
+          sum -= wheihts[j];
+          wheihts[j] = 0;
+          nodeIdx = j;
+          break;
+        }
+        cumSum += wheihts[i];
+      }
+      assert(nodeIdx != -1);
+      BehResult res = utilityNodes[nodeIdx].first->update(ecs, entity, bb);
+      if (res != BEH_FAIL)
+        return res;
+    }
+    return BEH_FAIL;
+  }
+};
+
+struct InertialUtilitySelector : public BehNode
+{
+  std::vector<std::pair<BehNode*, utility_function>> utilityNodes;
+  std::vector<float> inertia;
+  float add_inertia = 50.f;
+  float cooldown = 10.f;
+
+  BehResult update(flecs::world &ecs, flecs::entity entity, Blackboard &bb) override
+  {
+    std::vector<std::pair<float, size_t>> utilityScores;
+    for (size_t i = 0; i < utilityNodes.size(); ++i)
+    {
+      const float utilityScore = utilityNodes[i].second(bb) + inertia[i];
+      utilityScores.push_back(std::make_pair(utilityScore, i));
+    }
+    std::sort(utilityScores.begin(), utilityScores.end(), [](auto &lhs, auto &rhs)
+    {
+      return lhs.first > rhs.first;
+    });
+    for (const std::pair<float, size_t> &node : utilityScores)
+    {
+      size_t nodeIdx = node.second;
+      BehResult res = utilityNodes[nodeIdx].first->update(ecs, entity, bb);
+      if (res != BEH_FAIL)
+      {
+        inertia[nodeIdx] += add_inertia;
+        for (size_t i = 0; i < inertia.size(); ++i)
+        {
+          if (i == nodeIdx)
+            continue;
+          inertia[i] = inertia[i] - cooldown < 0.f ? 0.f : inertia[i] - cooldown;
+        }
+        return res;
+      }
     }
     return BEH_FAIL;
   }
@@ -244,6 +327,43 @@ struct PatchUp : public BehNode
   }
 };
 
+struct RandomMove : public BehNode
+{
+  RandomMove() {};
+
+  BehResult update(flecs::world &, flecs::entity entity, Blackboard &bb) override
+  {
+    BehResult res = BEH_RUNNING;
+    entity.set([&](Action &a)
+    {
+      a.action = GetRandomValue(EA_MOVE_START, EA_MOVE_END - 1); // do a random walk
+    });
+    return res;
+  }
+};
+
+struct MoveToBase : public BehNode
+{
+  MoveToBase() {}
+
+  BehResult update(flecs::world &, flecs::entity entity, Blackboard &bb) override
+  {
+    BehResult res = BEH_RUNNING;
+    entity.set([&](Action &a, const Position &pos)
+    {
+      const Position basePos = bb.get<Position>("base_pos");
+
+      if (pos != basePos)
+      {
+        a.action = move_towards(pos, basePos);
+        res = BEH_RUNNING;
+      }
+      else
+        res = BEH_FAIL;
+    });
+    return res;
+  }
+};
 
 
 BehNode *sequence(const std::vector<BehNode*> &nodes)
@@ -265,6 +385,21 @@ BehNode *selector(const std::vector<BehNode*> &nodes)
 BehNode *utility_selector(const std::vector<std::pair<BehNode*, utility_function>> &nodes)
 {
   UtilitySelector *usel = new UtilitySelector;
+  usel->utilityNodes = std::move(nodes);
+  return usel;
+}
+
+BehNode *weighted_random_utility_selector(const std::vector<std::pair<BehNode*, utility_function>> &nodes)
+{
+  WeightedRandomUtilitySelector *usel = new WeightedRandomUtilitySelector;
+  usel->utilityNodes = std::move(nodes);
+  return usel;
+}
+
+BehNode *inertial_utility_selector(const std::vector<std::pair<BehNode*, utility_function>> &nodes)
+{
+  InertialUtilitySelector *usel = new InertialUtilitySelector;
+  usel->inertia = std::vector<float>(nodes.size(), 0);
   usel->utilityNodes = std::move(nodes);
   return usel;
 }
@@ -299,4 +434,12 @@ BehNode *patch_up(float thres)
   return new PatchUp(thres);
 }
 
+BehNode *random_move()
+{
+  return new RandomMove();
+}
 
+BehNode *move_to_base()
+{
+  return new MoveToBase();
+}

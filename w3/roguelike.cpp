@@ -54,6 +54,47 @@ static void create_fuzzy_monster_beh(flecs::entity e)
   e.set(BehaviourTree{root});
 }
 
+static void create_collective_monster_beh(flecs::entity e, Position base_pos)
+{
+  Blackboard bb{};
+  size_t idx = bb.regName<Position>("base_pos");
+  bb.set<Position>(idx, base_pos);
+  e.set(Blackboard(bb));
+  BehNode *root =
+    utility_selector({
+      std::make_pair(
+        random_move(),
+        [](Blackboard &bb)
+        {
+          return 100.f;
+        }
+      ),
+      std::make_pair(
+        move_to_base(),
+        [](Blackboard &bb)
+        {
+          const float teammateDist = bb.get<float>("teammateDist");
+          const float baseDist = bb.get<float>("baseDist");
+          return baseDist * 20.f + teammateDist * 20.f;
+        }
+      ),
+      std::make_pair(
+        sequence({
+          find_enemy(e, 5.f, "attack_enemy"),
+          move_to_entity(e, "attack_enemy")
+        }),
+        [](Blackboard &bb)
+        {
+          const float enemyDist = bb.get<float>("enemyDist");
+          const float baseDist = bb.get<float>("baseDist");
+          return (30.f - baseDist * 11.f) * 15.f - 100.f * enemyDist;
+        }
+      )
+    });
+  e.add<WorldInfoGatherer>();
+  e.set(BehaviourTree{root});
+}
+
 static void create_minotaur_beh(flecs::entity e)
 {
   e.set(Blackboard{});
@@ -191,10 +232,14 @@ void init_roguelike(flecs::world &ecs)
         UnloadTexture(texture);
       });
 
-  create_fuzzy_monster_beh(create_monster(ecs, 5, 5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
-  create_fuzzy_monster_beh(create_monster(ecs, 10, -5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
-  create_fuzzy_monster_beh(create_monster(ecs, -5, -5, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
-  create_fuzzy_monster_beh(create_monster(ecs, -5, 5, Color{0, 255, 0, 255}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, 5, 5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, 10, -5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, -5, -5, Color{0x11, 0x11, 0x11, 0xff}, "minotaur_tex"));
+  // create_fuzzy_monster_beh(create_monster(ecs, -5, 5, Color{0, 255, 0, 255}, "minotaur_tex"));
+
+  create_collective_monster_beh(create_monster(ecs, 5, 5, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"), Position(6, 6));
+  create_collective_monster_beh(create_monster(ecs, 8, 8, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"), Position(7, 7));
+  create_collective_monster_beh(create_monster(ecs, 3, 4, Color{0xee, 0x00, 0xee, 0xff}, "minotaur_tex"), Position(3, 3));
 
   create_player(ecs, 0, 0, "swordsman_tex");
 
@@ -364,6 +409,9 @@ static void gather_world_info(flecs::world &ecs)
     push_info_to_bb(bb, "hp", hp.hitpoints);
     float numAllies = 0; // note float
     float closestEnemyDist = 100.f;
+    float closestTeammateDist = 100.f;
+    Position basePos = bb.get<Position>("base_pos");
+    float baseDist = dist(pos, basePos);
     alliesQuery.each([&](const Position &apos, const Team &ateam)
     {
       constexpr float limitDist = 5.f;
@@ -375,9 +423,17 @@ static void gather_world_info(flecs::world &ecs)
         if (enemyDist < closestEnemyDist)
           closestEnemyDist = enemyDist;
       }
+      if (team.team == ateam.team)
+      {
+        const float teammateDist = dist(pos, apos);
+        if (teammateDist < closestTeammateDist)
+          closestTeammateDist = teammateDist;
+      }
     });
     push_info_to_bb(bb, "alliesNum", numAllies);
     push_info_to_bb(bb, "enemyDist", closestEnemyDist);
+    push_info_to_bb(bb, "teammateDist", closestTeammateDist);
+    push_info_to_bb(bb, "baseDist", baseDist);
   });
 }
 
