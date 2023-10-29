@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <functional>
+#include <flecs.h>
 
 // TODO: make a lot of seprate files
 struct Position;
@@ -22,6 +24,17 @@ struct Position
   int y = 0;
 
   Position &operator=(const MovePos &rhs);
+};
+
+struct NextExplorePos
+{
+  int x = 0;
+  int y = 0;
+};
+
+struct HealthThreshold
+{
+  float hpThreshold = 60.f;
 };
 
 inline Position &Position::operator=(const MovePos &rhs)
@@ -73,6 +86,7 @@ enum Actions
   EA_ATTACK = EA_MOVE_END,
   EA_HEAL_SELF,
   EA_PASS,
+  EA_AUTO_EXPLORE,
   EA_NUM
 };
 
@@ -109,6 +123,7 @@ struct PlayerInput
   bool up = false;
   bool down = false;
   bool passed = false;
+  bool auto_explore = false;
 };
 
 struct Symbol
@@ -117,6 +132,8 @@ struct Symbol
 };
 
 struct IsPlayer {};
+struct IsMag {};
+
 
 struct WorldInfoGatherer {};
 
@@ -143,6 +160,7 @@ struct BackgroundTile {};
 struct DungeonData
 {
   std::vector<char> tiles; // for pathfinding
+  std::vector<char> tilesExplore;
   size_t width;
   size_t height;
 };
@@ -160,8 +178,14 @@ struct DmapWeights
   {
     float mult = 1.f;
     float pow = 1.f;
+    std::function<bool(flecs::entity e)> usefunc = [&](flecs::entity e) { return true; };
   };
   std::unordered_map<std::string, WtData> weights;
 };
 
 struct Hive {};
+
+struct IsAutoExplore
+{
+  bool isAutoExplore = false;
+};

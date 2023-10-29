@@ -10,12 +10,13 @@
 #include <limits>
 
 
-void gen_drunk_dungeon(char *tiles, size_t w, size_t h)
+void gen_drunk_dungeon(char *tiles, char *tilesExplore, size_t w, size_t h)
 {
   //constexpr char wall = '#';
   //constexpr char flr = ' ';
 
   memset(tiles, dungeon::wall, w * h);
+  memset(tilesExplore, dungeon::unexplored, w * h);
 
   // generator
   unsigned seed = unsigned(std::chrono::system_clock::now().time_since_epoch().count() % std::numeric_limits<int>::max());
