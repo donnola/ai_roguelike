@@ -187,8 +187,8 @@ static std::vector<Position> find_path_a_star(const char *input, size_t width, s
 void draw_nav_data(const char *input, size_t width, size_t height, Position from, Position to, float weight)
 {
   draw_nav_grid(input, width, height);
-  std::vector<Position> path = find_path_a_star(input, width, height, from, to, weight);
-  //std::vector<Position> path = find_ida_star_path(input, width, height, from, to);
+  // std::vector<Position> path = find_path_a_star(input, width, height, from, to, weight);
+  std::vector<Position> path = find_ida_star_path(input, width, height, from, to);
   draw_path(path);
 }
 
